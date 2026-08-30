@@ -46,6 +46,8 @@ External protocols sit behind adapters:
 - **Agent Runtime** — Hermes first;
 - **Transport** — binary WebSocket + PCM first.
 
+The caller-facing Session Engine shape is a long-lived **Session Handle** with attachment-aware client links. A Voice Client transport can detach without ending the Voice Session, while provider/runtime lifecycle and Turn mechanics remain hidden inside the Session Engine.
+
 The architecture intentionally does not expose Gemini or Hermes types through the core.
 
 ## Stack
@@ -69,11 +71,13 @@ Voice Gateway is independent from Iris and does not aim to reproduce its applica
 - [`CONTEXT.md`](CONTEXT.md) — canonical domain language;
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — runtime shape, seams, concurrency, backpressure, security, testing;
 - [`docs/RESEARCH.md`](docs/RESEARCH.md) — primary-source research and reference implementations;
+- [`docs/design/session-engine-interface.md`](docs/design/session-engine-interface.md) — design-it-twice comparison of Session Engine interface shapes;
 - [`docs/STANDARDS.md`](docs/STANDARDS.md) — engineering standards and implementation discipline;
 - [`docs/agents/domain.md`](docs/agents/domain.md) — how engineering agents consume domain docs;
 - [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) — GitHub issue-tracker convention;
 - [`docs/adr/0001-go-runtime.md`](docs/adr/0001-go-runtime.md) — why Go;
-- [`docs/adr/0002-session-engine-and-adapters.md`](docs/adr/0002-session-engine-and-adapters.md) — why the Session Engine and adapter seams.
+- [`docs/adr/0002-session-engine-and-adapters.md`](docs/adr/0002-session-engine-and-adapters.md) — why the Session Engine and adapter seams;
+- [`docs/adr/0003-session-handle-interface-shape.md`](docs/adr/0003-session-handle-interface-shape.md) — why the caller-facing interface uses a Session Handle with attachment-aware client links.
 
 ## Roadmap
 
@@ -84,7 +88,7 @@ Voice Gateway is independent from Iris and does not aim to reproduce its applica
 - [x] define Session Engine responsibility;
 - [x] choose runtime stack;
 - [x] define initial seams and testing strategy;
-- [ ] design the Session Engine public interface at least twice before committing it.
+- [x] design the Session Engine public interface at least twice before committing it.
 
 ### Phase 1 — walking skeleton
 
@@ -117,4 +121,4 @@ Vendored Matt Pocock engineering skills remain under their upstream MIT license;
 
 ## Status
 
-Early architecture phase. The goal is to make the first implementation small without accidentally baking Gemini, Hermes, Iris/Electron, or one device into the project model.
+Phase 0 architecture is defined. The next step is the Phase 1 walking skeleton, implemented test-first through the selected Session Engine seam without baking Gemini, Hermes, Iris/Electron, or one device into the project model.
