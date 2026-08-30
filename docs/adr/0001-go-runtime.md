@@ -1,48 +1,23 @@
-# ADR-0001: Use Go for the gateway runtime
+---
+status: accepted
+---
 
-- Status: Accepted
-- Date: 2026-08-29
+# Use Go 1.27 for the gateway runtime
 
-## Context
+Voice Gateway is a long-lived realtime process expected to run on small servers and ARM64 machines while maintaining streaming network connections, bounded media queues, and independent Agent Runtime work. We choose Go 1.27 because it provides a small deployable runtime, straightforward cross-compilation, a concurrency model that fits per-session ownership, and an official Google Gen AI SDK that exposes Gemini Live sessions.
 
-Voice Gateway is a long-lived realtime process expected to run on small servers and ARM64 machines while maintaining multiple streaming network connections, bounded media queues, and independent agent-runtime work.
+The Gemini Live surface in the Go SDK is currently marked Preview. That strengthens, rather than weakens, the need to keep provider SDK/protocol types behind the Voice Provider seam so upstream churn remains local to an adapter.
 
-The first Voice Provider, Gemini Live, has an official Go SDK with Live support. The project also needs simple cross-compilation, predictable memory use, low operational overhead, and a concurrency model that makes per-session ownership straightforward.
+## Considered Options
 
-Alternatives considered:
-
-- TypeScript/Node.js: excellent Gemini ecosystem fit and proven by Iris, but higher runtime footprint and less attractive as a small standalone gateway binary.
-- Kotlin/JVM: strong language/runtime and aligned with Quark, but makes this independent edge/gateway process heavier than necessary and couples two projects' technology choices without a domain reason.
-- Rust: excellent runtime characteristics, but materially higher implementation complexity for the current team/project phase with little expected product-level latency advantage over Go for network-bound provider calls.
-
-## Decision
-
-Use Go as the implementation language for Voice Gateway.
-
-Baseline:
-
-- Go 1.26 language/module baseline;
-- CI tests current baseline and the current stable Go release;
-- standard library first;
-- official Google Gen AI Go SDK for Gemini Live;
-- goroutine-per-session owner loop rather than shared mutable state.
+- **TypeScript/Node.js** — excellent realtime-AI ecosystem fit and proven by Iris, but a larger runtime footprint and less attractive operational shape for a small standalone gateway binary.
+- **Kotlin/JVM** — strong language/runtime and aligned with Quark, but would couple the gateway's technology choice to an Agent Runtime without a domain reason and increase the deployment footprint.
+- **Rust** — excellent runtime characteristics, but materially higher implementation complexity with little expected product-level latency advantage for this network-bound system at the current phase.
 
 ## Consequences
 
-Positive:
-
-- single small deployable binary;
-- straightforward Linux/ARM64 builds;
-- good fit for streaming I/O and session ownership;
-- official Gemini Live SDK support;
-- gateway technology remains independent from Agent Runtime technology.
-
-Negative:
-
-- Hermes and Iris examples cannot be reused directly because they are Python/JavaScript-oriented;
-- future browser-facing code still needs a separate client implementation;
-- some realtime AI SDK examples appear first in Python/TypeScript, requiring occasional protocol translation.
-
-## Revisit when
-
-Revisit only if a required Voice Provider lacks a viable Go SDK/protocol implementation, or measured gateway CPU/memory/latency shows Go itself to be a blocker.
+- Initial module/toolchain baseline is Go 1.27, the current stable major release when this decision was recorded.
+- Standard library is preferred where practical; the official Google Gen AI Go SDK is the initial Gemini adapter dependency.
+- One owner goroutine per Voice Session is the default concurrency model, subject to validation in the Session Engine interface/design pass.
+- Browser/device clients remain separate implementations and do not need to use Go.
+- Revisit the language choice only if a required provider cannot be supported cleanly in Go or measurement shows the runtime itself is a material resource/latency blocker.
