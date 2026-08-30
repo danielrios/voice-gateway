@@ -50,26 +50,28 @@ The architecture intentionally does not expose Gemini or Hermes types through th
 
 ## Stack
 
-- **Go** runtime;
-- official Google Gen AI Go SDK for Gemini Live;
+- **Go 1.27** runtime baseline;
+- official Google Gen AI Go SDK for the initial Gemini Live adapter (its Live surface is currently Preview and remains isolated behind the adapter);
 - standard library first;
-- one owner goroutine per Voice Session;
+- one owner goroutine per Voice Session as the initial concurrency model;
 - `log/slog` for structured logging;
 - deterministic in-memory adapters for core tests;
 - WebSocket/PCM transport for the first constrained-device path.
 
-## Strong inspiration: Iris
+## Reference implementation: Iris
 
-[ASHR12/iris](https://github.com/ASHR12/iris) is the closest working reference for the target interaction model: Gemini Live remains responsive as the realtime voice frontend while Hermes performs independent work and reports real lifecycle/results back into the conversation.
+[ASHR12/iris](https://github.com/ASHR12/iris) is an MIT-licensed reference implementation we studied because it demonstrates a closely related interaction model: Gemini Live remains responsive as the realtime voice frontend while Hermes performs independent work and reports real lifecycle/results back into the conversation.
 
-Voice Gateway adopts that separation, Turn/interruption discipline, session-resumption thinking, and proactive result announcements — while extracting them from Iris's Electron/Gemini/Hermes-specific application architecture into a small provider/runtime-neutral gateway.
+Voice Gateway is independent from Iris and does not aim to reproduce its application architecture. Iris is one research input alongside the official Gemini/OpenAI documentation and the LiveKit/Pipecat architectures. The gateway keeps the useful invariants — independent voice/agent lifecycles, interruption correctness, session-resumption thinking, and proactive results — while defining its own provider/runtime-neutral domain model.
 
 ## Documents
 
 - [`CONTEXT.md`](CONTEXT.md) — canonical domain language;
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — runtime shape, seams, concurrency, backpressure, security, testing;
-- [`docs/RESEARCH.md`](docs/RESEARCH.md) — Iris, Gemini Live, OpenAI Realtime, LiveKit, and Pipecat comparison;
-- [`docs/STANDARDS.md`](docs/STANDARDS.md) — engineering standards for the first implementation;
+- [`docs/RESEARCH.md`](docs/RESEARCH.md) — primary-source research and reference implementations;
+- [`docs/STANDARDS.md`](docs/STANDARDS.md) — engineering standards and implementation discipline;
+- [`docs/agents/domain.md`](docs/agents/domain.md) — how engineering agents consume domain docs;
+- [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) — GitHub issue-tracker convention;
 - [`docs/adr/0001-go-runtime.md`](docs/adr/0001-go-runtime.md) — why Go;
 - [`docs/adr/0002-session-engine-and-adapters.md`](docs/adr/0002-session-engine-and-adapters.md) — why the Session Engine and adapter seams.
 
@@ -78,7 +80,7 @@ Voice Gateway adopts that separation, Turn/interruption discipline, session-resu
 ### Phase 0 — architecture
 
 - [x] establish domain language;
-- [x] research realtime voice architecture patterns;
+- [x] research realtime voice architecture patterns against primary sources;
 - [x] define Session Engine responsibility;
 - [x] choose runtime stack;
 - [x] define initial seams and testing strategy;
@@ -101,6 +103,10 @@ Voice Gateway adopts that separation, Turn/interruption discipline, session-resu
 - device examples/SDKs, starting with ESP32/M5StickS3;
 - production observability and deployment packaging.
 
+## Development approach
+
+The project uses Matt Pocock's engineering-skills methodology as a development aid: primary-source research, explicit domain language, selective ADRs, design-it-twice for important interfaces, TDD at stable seams, and standards/spec review before merge. The skills are not runtime dependencies and are not copied into the product architecture.
+
 ## Status
 
-Early architecture phase. The goal is to make the first implementation small without accidentally baking Gemini, Hermes, Electron, or one device into the project model.
+Early architecture phase. The goal is to make the first implementation small without accidentally baking Gemini, Hermes, Iris/Electron, or one device into the project model.
