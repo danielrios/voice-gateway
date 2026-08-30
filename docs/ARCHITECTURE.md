@@ -109,7 +109,7 @@ Likely later production adapter: Quark.
 
 Transport connects a Voice Client to the gateway. It is deliberately below the Session Engine and does not receive provider- or agent-specific concepts.
 
-Phase 1 begins with a simple binary WebSocket transport carrying PCM frames plus small control messages. This fits constrained clients and is easy to implement on ESP32. WebRTC is deferred until browser/mobile requirements justify its added signaling and media complexity.
+Phase 1 begins with a simple binary WebSocket transport carrying PCM frames plus small control messages. Espressif provides an official WebSocket client with binary-frame support for ESP32-family devices, making this a practical first constrained-device path. WebRTC is deferred until browser/mobile requirements justify its added signaling and media complexity.
 
 ## Internal event model
 
