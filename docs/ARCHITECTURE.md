@@ -59,9 +59,29 @@ Voice Client <----> |   Transport Adapter  |
 
 ### Session Engine
 
-The Session Engine is the core deep module. Its interface should expose a small number of operations around starting/resuming a Voice Session, accepting client input, observing output, and ending the session. Provider protocol details, turn epochs, provider tool correlation, buffering, and reconnection policy stay inside the implementation.
+The Session Engine is the core deep module. Its caller-facing interface uses a long-lived **Session Handle** with attachment-aware client links so a Voice Session is not confused with one network connection.
 
-The exact Go interface is intentionally not frozen in Phase 0. We will use a design-it-twice pass before committing the public interface.
+Conceptually:
+
+```text
+SessionEngine.Open(new | resume)
+        |
+        v
+   SessionHandle
+     |       |
+  Attach    End
+     |
+     v
+  ClientLink
+   |   |   |
+ Send Events Detach
+```
+
+`Open` creates or resumes a Voice Session. `Attach` creates a transport-facing link. `Detach` ends that link without ending the Voice Session. `End` explicitly terminates the Voice Session.
+
+Client input and session output are narrow gateway-owned typed variants. Provider protocol details, Turn epochs, provider tool correlation, buffering, backpressure, Delegation state, and reconnection policy stay inside the implementation.
+
+The design-it-twice exploration is recorded in `docs/design/session-engine-interface.md` and the durable decision in ADR-0003. Exact Go signatures may still be refined by the walking skeleton, but the lifecycle shape and its invariants are now fixed unless the ADR is reopened.
 
 ### Voice Provider seam
 
@@ -189,7 +209,7 @@ Voice Session identity is gateway-owned. Provider connection identity is adapter
 
 A provider adapter may supply a resumption token/handle. The Session Engine decides whether the Voice Session remains resumable and when a dormant session expires. Provider-specific TTLs remain inside the provider adapter as capability metadata or normalized events.
 
-Idle connections should be closable without necessarily destroying the Voice Session. This matters both for resource usage and providers that charge/limit continuously streamed audio.
+A Voice Client attachment is represented by a `ClientLink`. Detaching a `ClientLink` does not end the Voice Session; it may become dormant and later receive another attachment. This distinction allows idle network/provider connections to close without necessarily destroying conversational state.
 
 ## Concurrency model
 
@@ -246,6 +266,7 @@ The interface is the test surface.
 - Session Engine tests use in-memory Voice Provider and Agent Runtime adapters.
 - Protocol adapters have focused contract/integration tests against recorded or local protocol fixtures where possible.
 - Race-sensitive Turn tests use deterministic events and clocks instead of sleeps.
+- Interface tests cover detach/re-attach separately from explicit Voice Session termination.
 - End-to-end smoke tests cover real Gemini Live and Hermes only when credentials/runtime are available; they are not required for the normal unit suite.
 
 ## Non-goals for the initial runtime
