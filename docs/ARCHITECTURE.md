@@ -84,6 +84,8 @@ Initial adapters:
 
 Likely later production adapter: OpenAI Realtime.
 
+The initial Gemini adapter may use Google's official Go SDK, whose Live module is currently Preview. SDK types and API-version details therefore remain strictly inside the adapter so upstream churn does not change the Session Engine interface.
+
 ### Agent Runtime seam
 
 An Agent Runtime adapter translates Delegations and Interactions into the runtime's native protocol and emits normalized lifecycle events.
@@ -158,7 +160,7 @@ playback
 idle
 ```
 
-Each Turn receives a monotonically increasing epoch. Completion belonging to an interrupted older epoch cannot settle the current epoch. Iris implements the same essential safety property in its `LiveTurnState`; this is worth preserving as a gateway invariant rather than reproducing its exact implementation.
+Each Turn receives a monotonically increasing epoch. Completion belonging to an interrupted older epoch cannot settle the current epoch. Iris's `LiveTurnState` is one concrete implementation reference for the same safety property; the invariant belongs to Voice Gateway independently of that implementation.
 
 ## Delegation lifecycle
 
@@ -179,7 +181,7 @@ Agent Runtime -------------------+
             Announcement
 ```
 
-This is the most important architectural lesson from Iris: Gemini Live remains the conversational frontend while Hermes does long-running work independently. The gateway should preserve that capability without coupling it to either product.
+Iris provides a concrete example of this broader pattern: realtime conversation remains active while an independent Agent Runtime performs long-running work and later returns a result. Voice Gateway preserves the pattern without coupling it to Iris, Gemini, or Hermes.
 
 ## Session lifetime and resumption
 
