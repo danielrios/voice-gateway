@@ -1,17 +1,37 @@
-# Issue Tracker
+# Issue tracker: GitHub
 
-Work for Voice Gateway is tracked in this repository's GitHub Issues.
+Issues and specs for this repository live in GitHub Issues for
+`danielrios/voice-gateway`. Use the `gh` CLI for all operations.
 
 ## Conventions
 
-- specs produced from design work become GitHub issues;
-- implementation tickets should link back to the originating spec/decision when one exists;
-- blocking relationships should use GitHub-native issue dependencies when available;
-- comments record meaningful investigation results or decisions instead of duplicating transient agent progress;
-- closing an issue should include enough result context to understand what changed or why no change was made.
+- Create issues with `gh issue create`.
+- Read issues and comments with `gh issue view <number> --comments`.
+- List and filter issues with `gh issue list`.
+- Comment with `gh issue comment <number>`.
+- Apply or remove labels with `gh issue edit`.
+- Close issues with `gh issue close`.
+- Link implementation tickets to their originating specification or decision.
+- Use GitHub-native dependencies for blocking relationships when available.
+- Record meaningful investigation results and decisions in comments.
+- Include enough context when closing an issue to explain the outcome.
 
-## Pull requests as a request surface
+Infer the repository from `git remote -v`; `gh` does this automatically inside
+the clone.
 
-External pull requests are **not** treated as feature-request/triage tickets by default. PRs represent proposed code/document changes; planning and unresolved work belong in issues.
+## Pull requests as a triage surface
 
-When an engineering skill says to publish to the issue tracker, create or update a GitHub issue in `danielrios/voice-gateway`.
+**PRs as a request surface: no.**
+
+Pull requests represent proposed changes. Planning and unresolved work belong
+in issues.
+
+## Skill operations
+
+When a skill says "publish to the issue tracker," create a GitHub issue.
+When a skill says "fetch the relevant ticket," read the GitHub issue and its
+comments.
+
+For wayfinding, use one `wayfinder:map` issue with linked child issues. Prefer
+GitHub sub-issues and native issue dependencies; use task-list and `Blocked by`
+fallbacks only when those features are unavailable.
