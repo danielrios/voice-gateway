@@ -59,6 +59,14 @@ Primary source: https://go.dev/doc/devel/release
 
 Go 1.27.0 was released on 2026-08-19 and is the current stable Go release at the time of this architecture pass. Because Voice Gateway is a new project with no existing compatibility contract, the initial implementation should target Go 1.27 rather than start with an older language/toolchain baseline.
 
+## ESP32 WebSocket transport feasibility
+
+Primary source: https://docs.espressif.com/projects/esp-protocols/esp_websocket_client/docs/latest/index.html
+
+Espressif maintains an official WebSocket client for ESP32-family devices with `ws` and `wss` support, TCP/TLS transport, multiple client instances, and binary-frame sending. This is sufficient evidence that a simple binary WebSocket transport is a practical first path for ESP32-class Voice Clients without making WebSocket part of the Session Engine semantics.
+
+The transport decision remains deliberately narrow: WebSocket/PCM is the Phase 1 constrained-device path, not a claim that WebRTC or other media transports are unnecessary for richer browser/mobile clients.
+
 ## OpenAI Realtime
 
 Primary source: https://developers.openai.com/api/docs/guides/realtime
@@ -98,7 +106,7 @@ The engineering workflow used for this project follows the repository's design v
 - `code-review` — review both standards compliance and spec fidelity;
 - `to-spec`, `to-tickets`, and `implement` — turn resolved design into small executable slices.
 
-The skills are development-process inputs, not runtime dependencies and are not vendored into Voice Gateway by this architecture PR.
+The selected skills are installed under `.agents/skills/` as development-only tooling and tracked by `skills-lock.json`. They are not runtime dependencies and do not define Voice Gateway's product architecture. Their upstream MIT license is preserved in `.agents/skills/LICENSE`.
 
 ## Market pattern synthesis
 
