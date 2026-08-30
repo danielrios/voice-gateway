@@ -6,13 +6,15 @@ These standards keep the first implementation small, observable, and safe under 
 
 ## Go
 
-- Go 1.26 module baseline.
+- Go 1.27 module/toolchain baseline.
 - `gofmt` is mandatory.
 - `go vet ./...` and `go test ./...` must pass in CI.
+- Run `go test -race ./...` in CI once concurrent runtime code exists.
 - Prefer the standard library unless a dependency removes meaningful protocol or platform complexity.
 - No dependency-injection framework.
 - No generic plugin framework in Phase 1.
 - Avoid reflection in runtime paths unless required by an SDK.
+- Treat provider SDK preview surfaces as volatile: provider SDK types stay inside their adapter.
 
 ## Package direction
 
@@ -72,13 +74,26 @@ This is not a mandate to create one package per noun. Packages should be deep mo
 
 ## Testing
 
+- New behavior is developed red → green → refactor whenever a stable seam exists.
 - Prefer table tests for state-machine behavior.
 - Use deterministic in-memory adapters for Session Engine tests.
 - Inject clocks where time changes behavior.
-- Run `go test -race ./...` in CI once implementation begins.
 - Adapter integration tests are separate from core behavior tests.
 - Real-provider smoke tests are opt-in and credential-gated.
 - Tests should survive internal refactors; if an internal rename breaks many tests, the test surface is too low-level.
+
+## Development workflow
+
+The repository follows the Matt Pocock engineering-skills discipline as a development aid, not as a runtime dependency:
+
+1. research against primary sources when external facts drive a decision;
+2. sharpen domain language in `CONTEXT.md` and capture only durable trade-offs as ADRs;
+3. design important interfaces more than once before freezing them;
+4. turn resolved work into a spec/tickets before large implementation slices;
+5. implement through the public seam with TDD where practical;
+6. review both engineering standards and spec fidelity before merge.
+
+Do not copy a skill's process mechanically when the repository already contains a stronger explicit rule.
 
 ## Observability
 
