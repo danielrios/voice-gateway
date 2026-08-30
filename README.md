@@ -105,7 +105,15 @@ Voice Gateway is independent from Iris and does not aim to reproduce its applica
 
 ## Development approach
 
-The project uses Matt Pocock's engineering-skills methodology as a development aid: primary-source research, explicit domain language, selective ADRs, design-it-twice for important interfaces, TDD at stable seams, and standards/spec review before merge. The skills are not runtime dependencies and are not copied into the product architecture.
+The project uses Matt Pocock's engineering-skills methodology as a development aid: primary-source research, explicit domain language, selective ADRs, design-it-twice for important interfaces, TDD at stable seams, and standards/spec review before merge.
+
+The selected skills are installed under `.agents/skills/` and tracked by `skills-lock.json`. They are development-only tooling, not runtime dependencies and not part of the Voice Gateway architecture. Their upstream MIT license is preserved in `.agents/skills/LICENSE`.
+
+## License
+
+Voice Gateway is licensed under the MIT License. See [`LICENSE`](LICENSE).
+
+Vendored Matt Pocock engineering skills remain under their upstream MIT license; see [`.agents/skills/LICENSE`](.agents/skills/LICENSE).
 
 ## Status
 
