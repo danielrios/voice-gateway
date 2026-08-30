@@ -19,8 +19,11 @@ The caller-facing knowledge is limited to opening/resuming a Voice Session, atta
 ## Consequences
 
 - Transport attachment lifetime is explicit and separate from Voice Session termination.
+- A Voice Session has at most one active `ClientLink`. A new attachment atomically supersedes the previous link so reconnect races do not strand a Voice Client; the superseded link becomes terminal and can no longer send or receive current-session output.
+- Detach is safe to repeat and never implies Voice Session termination. Explicit `End` terminates the Voice Session and invalidates any active link.
+- Media from an invalidated link/Turn is never replayed after re-attachment. Durable control state and pending Announcements may survive detach according to Session Engine policy.
 - Voice Provider and Agent Runtime ports remain implementation dependencies, not caller-facing parameters; production and deterministic test adapters satisfy those seams.
 - `SessionInput` and `SessionOutput` are gateway-owned, narrow typed domain variants; provider/runtime protocol objects and generic `map[string]any` extension points do not cross the interface.
 - reducer-like transitions may be used internally where useful, but they are not the public interface.
-- Phase 1 tests must exercise interruption, stale-output rejection, detach/re-attach, Delegation completion, and termination through the Session Engine interface rather than internal state.
+- Phase 1 tests must exercise interruption, stale-output rejection, link supersession, detach/re-attach, Delegation completion, idempotent detach/end behavior, and termination through the Session Engine interface rather than internal state.
 - the design-it-twice exploration is recorded in `docs/design/session-engine-interface.md`; exact Go type details may still be refined by the walking skeleton as long as this interface shape and its invariants remain intact.
