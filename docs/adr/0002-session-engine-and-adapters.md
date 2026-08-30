@@ -1,73 +1,24 @@
-# ADR-0002: Center the runtime on a Session Engine with provider and agent adapters
+---
+status: accepted
+---
 
-- Status: Accepted
-- Date: 2026-08-29
+# Center the runtime on a deep Session Engine with adapters
 
-## Context
+Voice Gateway sits between independently evolving realtime Voice Providers and Agent Runtimes. We choose one deep Session Engine module to own Turn lifecycle, interruption, playback validity, Voice Session lifetime, Delegation correlation, Announcements, and backpressure, while provider/runtime protocols remain behind adapters. This keeps race-sensitive orchestration local instead of forcing every caller to assemble a generic pipeline or coordinate provider callbacks itself.
 
-The gateway sits between two independently evolving external systems:
+The decision is supported by recurring patterns in Gemini Live, OpenAI Realtime, LiveKit, Pipecat, and by Iris as a concrete reference implementation. Iris is evidence that the interaction model works; it is not the specification for this module.
 
-1. realtime Voice Providers such as Gemini Live;
-2. Agent Runtimes such as Hermes and Quark.
+## Considered Options
 
-A naive implementation could expose provider callbacks directly to clients or model the gateway as a generic processor pipeline. Both approaches make callers coordinate Turn lifecycle, interruption, provider tools, agent delegation, and reconnection themselves.
-
-Iris demonstrates that the hard part is not forwarding audio. It is keeping realtime conversation coherent while independent agent work runs and while provider events can overlap or arrive after interruption.
-
-## Decision
-
-The core runtime is one deep Session Engine module.
-
-The Session Engine owns:
-
-- Turn lifecycle and epochs;
-- interruption/barge-in state;
-- playback validity;
-- normalized provider events;
-- delegation correlation;
-- announcements;
-- Voice Session lifecycle and resumption policy;
-- media/control backpressure policy.
-
-Two external seams are accepted:
-
-- `Voice Provider`: production Gemini Live adapter + deterministic in-memory test adapter;
-- `Agent Runtime`: production Hermes adapter + deterministic in-memory test adapter.
-
-Transport is separate from the Session Engine. Phase 1 uses a binary WebSocket/PCM adapter.
-
-The public Session Engine interface is not fixed by this ADR. It will be designed separately using a design-it-twice exercise before implementation.
+- **Generic processor/frame pipeline as the public architecture** — maximizes flexibility, but exposes orchestration composition to callers and risks a broad, shallow interface. Typed internal events may still be used inside the Session Engine.
+- **Gemini-shaped core** — rejected because model names, MIME rules, SDK callbacks, API versions, and resumption handles belong to the Gemini adapter.
+- **Hermes-shaped core** — rejected because Hermes JSON-RPC methods/events do not define gateway domain semantics.
+- **Voice logic primarily inside a Hermes plugin** — rejected because media/session/provider lifecycle must survive replacing Hermes. A Hermes plugin may still exist later as a thin integration adapter if the runtime requires it.
 
 ## Consequences
 
-Positive:
-
-- high leverage for clients: they do not coordinate provider/runtime protocols;
-- high locality: race-sensitive Turn state lives in one module;
-- Gemini and Hermes remain replaceable;
-- tests exercise the same Session Engine interface callers use;
-- long-running Delegations do not block realtime conversation.
-
-Negative:
-
-- the Session Engine has meaningful internal complexity;
-- normalized events require careful semantic mapping from each provider/runtime;
-- provider-specific advanced features may need capability negotiation rather than leaking directly through the core interface.
-
-## Rejected alternatives
-
-### Generic processor/frame pipeline as the public architecture
-
-Rejected for Phase 1. It maximizes flexibility but creates a broad, shallow interface and pushes orchestration knowledge into application composition. Voice Gateway has a specific job and should provide a deeper interface.
-
-### Gemini-shaped core
-
-Rejected. Gemini Live is the first adapter, not the domain model. Session resumption handles, SDK callbacks, model names, and MIME details stay inside the adapter.
-
-### Hermes-shaped core
-
-Rejected. Hermes is the first Agent Runtime adapter. Its JSON-RPC methods and event names do not define Delegation or Interaction semantics for the gateway.
-
-### Voice logic inside a Hermes plugin
-
-Rejected as the primary architecture. Audio transport, Voice Provider lifecycle, and realtime session state should survive replacing Hermes. A Hermes plugin may later improve integration, but it is an adapter concern rather than the gateway runtime itself.
+- `Voice Provider` is an external seam with Gemini Live as the first production adapter and a deterministic in-memory adapter for tests; OpenAI Realtime is deliberate second-provider design pressure.
+- `Agent Runtime` is an external seam with Hermes first and a deterministic in-memory test adapter; Quark is a likely later production adapter.
+- client Transport stays below conversational semantics; Phase 1 begins with binary WebSocket/PCM.
+- the Session Engine may have substantial internal implementation complexity, but its public interface should remain small and become the main test surface.
+- the exact Go interface is deliberately not fixed by this ADR; it must go through a design-it-twice pass before the walking skeleton commits it.
