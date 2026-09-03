@@ -1566,12 +1566,16 @@ func TestMediaQueueDropOldestMaintainsCapacity(t *testing.T) {
 		}
 	}
 
+	// Wait for queue to be fully drained
+	session.WaitForMediaCountForTesting(link, 0)
+
 	// Now emit 3 more chunks; none should be dropped because queue was drained
 	for i := 10; i < 13; i++ {
 		pSess.EmitAudio(turnID, []byte(fmt.Sprintf("item-%d", i)))
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	session.WaitForMediaCountForTesting(link, 3)
+
 	if dropped := session.GetDroppedMediaCountForTesting(link); dropped != 7 {
 		t.Fatalf("expected dropped count to remain 7, got %d", dropped)
 	}
@@ -1750,5 +1754,79 @@ func TestWaitForDroppedMediaCountOnPurge(t *testing.T) {
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatal("timed out waiting for WaitForDroppedMediaCount on purge")
+	}
+}
+
+func TestMediaQueueDropWhileDispatchWaitingMaintainsCapacity(t *testing.T) {
+	ctx := context.Background()
+	provider := session.NewFakeVoiceProvider()
+	runtime := session.NewFakeAgentRuntime()
+	engine := session.NewEngine(provider, runtime)
+
+	handle, err := engine.Open(ctx, session.OpenRequest{})
+	if err != nil {
+		t.Fatalf("unexpected open error: %v", err)
+	}
+
+	link, err := handle.Attach(ctx)
+	if err != nil {
+		t.Fatalf("unexpected attach error: %v", err)
+	}
+
+	capacity := 3
+	session.SetMediaQueueCapacityForTesting(link, capacity)
+
+	turnID := session.TurnID("turn_1")
+
+	inSlowPath := make(chan struct{})
+	var dropOnce sync.Once
+	session.SetOnDispatchWaitingForTesting(link, func() {
+		dropOnce.Do(func() {
+			// At this exact moment, dispatchLoop has copied chunk-0 into nextItem
+			// and released queueMu. Enqueuing chunks 1, 2, and 3 fills the queue to capacity (3)
+			// and chunk-3 drops chunk-0 from link.queue.
+			session.EnqueueMediaDirectForTesting(link, session.AudioOutput{TurnID: turnID, Data: []byte("chunk-1")}, 1)
+			session.EnqueueMediaDirectForTesting(link, session.AudioOutput{TurnID: turnID, Data: []byte("chunk-2")}, 1)
+			session.EnqueueMediaDirectForTesting(link, session.AudioOutput{TurnID: turnID, Data: []byte("chunk-3")}, 1)
+			close(inSlowPath)
+		})
+	})
+
+	// Emit chunk-0 directly to link
+	session.EnqueueMediaDirectForTesting(link, session.AudioOutput{TurnID: turnID, Data: []byte("chunk-0")}, 1)
+
+	// Wait until dispatchLoop is waiting to deliver chunk-0
+	<-inSlowPath
+
+	// Read events until all chunks are consumed.
+	var receivedAudio []string
+	for i := 0; i < capacity; i++ {
+		t.Logf("reading chunk %d", i)
+		ev := readEventWithTimeout(t, link.Events())
+		if aud, ok := ev.(session.AudioOutput); ok {
+			t.Logf("received chunk: %s", string(aud.Data))
+			receivedAudio = append(receivedAudio, string(aud.Data))
+		} else {
+			t.Fatalf("unexpected event: %#v", ev)
+		}
+	}
+
+	// Verify that no extra chunks leaked beyond capacity (capacity is 3)
+	select {
+	case extra := <-link.Events():
+		if aud, ok := extra.(session.AudioOutput); ok {
+			t.Fatalf("audio chunks delivered exceeded max capacity (%d): got extra chunk %s", capacity, string(aud.Data))
+		}
+	case <-time.After(50 * time.Millisecond):
+		// Expected: no extra chunks delivered
+	}
+
+	if len(receivedAudio) != capacity {
+		t.Fatalf("expected exactly %d audio chunks delivered, got %d: %v", capacity, len(receivedAudio), receivedAudio)
+	}
+
+	// The newest chunk (chunk-3) must be the last chunk received
+	if last := receivedAudio[len(receivedAudio)-1]; last != "chunk-3" {
+		t.Fatalf("expected freshest chunk-3, got %s", last)
 	}
 }

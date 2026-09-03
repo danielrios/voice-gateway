@@ -1,6 +1,9 @@
 package session
 
-import "io"
+import (
+	"io"
+	"sync"
+)
 
 // SetRandReaderForTesting allows testing entropy failure in session_test.
 func SetRandReaderForTesting(r io.Reader) func() {
@@ -45,5 +48,28 @@ func EnqueueMediaDirectForTesting(link ClientLink, output SessionOutput, epoch u
 func InvalidatePlaybackForTesting(link ClientLink, epoch uint64) {
 	if cl, ok := link.(*clientLink); ok {
 		cl.invalidatePlayback(epoch)
+	}
+}
+
+// SetOnDispatchWaitingForTesting configures a hook called when dispatchLoop is about to wait on events send.
+func SetOnDispatchWaitingForTesting(link ClientLink, fn func()) {
+	if cl, ok := link.(*clientLink); ok {
+		cl.queueMu.Lock()
+		cl.onDispatchWaiting = fn
+		cl.queueMu.Unlock()
+	}
+}
+
+// WaitForMediaCountForTesting blocks until link's mediaCount equals the target count.
+func WaitForMediaCountForTesting(link ClientLink, count int) {
+	if cl, ok := link.(*clientLink); ok {
+		cl.queueMu.Lock()
+		defer cl.queueMu.Unlock()
+		if cl.queueCond == nil {
+			cl.queueCond = sync.NewCond(&cl.queueMu)
+		}
+		for cl.mediaCount != count {
+			cl.queueCond.Wait()
+		}
 	}
 }

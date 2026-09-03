@@ -443,6 +443,19 @@ func (h *handle) run() {
 					continue
 				}
 				handleProviderEvent(ev)
+				for providerEvents != nil {
+					select {
+					case nextEv, nextOk := <-providerEvents:
+						if !nextOk {
+							providerEvents = nil
+							break
+						}
+						handleProviderEvent(nextEv)
+						continue
+					default:
+					}
+					break
+				}
 			}
 		}
 	}

@@ -42,6 +42,7 @@ type clientLink struct {
 	mediaCount        int
 	invalidatedEpoch  uint64
 	droppedMediaCount int64
+	onDispatchWaiting func()
 }
 
 func newClientLink(onDetach func(*clientLink), onSend func(context.Context, *clientLink, SessionInput) error) *clientLink {
@@ -92,6 +93,9 @@ func (l *clientLink) dispatchLoop() {
 		case l.events <- l.queue[0].output:
 			if l.queue[0].isMedia {
 				l.mediaCount--
+				if l.queueCond != nil {
+					l.queueCond.Broadcast()
+				}
 			}
 			l.queue[0] = linkItem{}
 			l.queue = l.queue[1:]
@@ -109,6 +113,10 @@ func (l *clientLink) dispatchLoop() {
 		default:
 		}
 
+		if l.onDispatchWaiting != nil {
+			l.onDispatchWaiting()
+		}
+
 		select {
 		case <-l.done:
 			return
@@ -116,21 +124,49 @@ func (l *clientLink) dispatchLoop() {
 			continue
 		case l.events <- nextItem.output:
 			l.queueMu.Lock()
+			found := false
 			if len(l.queue) > 0 && l.queue[0].seq == nextItem.seq {
+				found = true
 				if l.queue[0].isMedia {
 					l.mediaCount--
+					if l.queueCond != nil {
+						l.queueCond.Broadcast()
+					}
 				}
 				l.queue[0] = linkItem{}
 				l.queue = l.queue[1:]
 			} else {
 				for i, item := range l.queue {
 					if item.seq == nextItem.seq {
+						found = true
 						if item.isMedia {
 							l.mediaCount--
+							if l.queueCond != nil {
+								l.queueCond.Broadcast()
+							}
 						}
 						copy(l.queue[i:], l.queue[i+1:])
 						l.queue[len(l.queue)-1] = linkItem{}
 						l.queue = l.queue[:len(l.queue)-1]
+						break
+					}
+				}
+			}
+			if !found && nextItem.isMedia && nextItem.epoch > l.invalidatedEpoch {
+				// nextItem was media dropped from l.queue by enqueueMedia under backpressure
+				// while dispatchLoop was delivering it across l.events.
+				// Since nextItem was nevertheless delivered to the client, we must drop
+				// the oldest queued media chunk from l.queue to maintain the invariant that
+				// delivered media chunks do not exceed maxMediaQueue.
+				for i, item := range l.queue {
+					if item.isMedia {
+						copy(l.queue[i:], l.queue[i+1:])
+						l.queue[len(l.queue)-1] = linkItem{}
+						l.queue = l.queue[:len(l.queue)-1]
+						l.mediaCount--
+						if l.queueCond != nil {
+							l.queueCond.Broadcast()
+						}
 						break
 					}
 				}
@@ -182,6 +218,9 @@ func (l *clientLink) enqueueMedia(output SessionOutput, epoch uint64) {
 	l.nextSeq++
 	l.queue = append(l.queue, linkItem{seq: l.nextSeq, output: output, isMedia: true, epoch: epoch})
 	l.mediaCount++
+	if l.queueCond != nil {
+		l.queueCond.Broadcast()
+	}
 	l.notifyWake()
 }
 
