@@ -24,6 +24,7 @@ type endCmd struct {
 
 type inputCmd struct {
 	ctx   context.Context
+	link  *clientLink
 	input SessionInput
 	reply chan error
 }
@@ -33,17 +34,23 @@ type handle struct {
 	provider ProviderSession
 	runtime  RuntimeSession
 
+	ctx     context.Context
+	cancel  context.CancelFunc
 	cmdChan chan any
 	done    chan struct{}
 
-	endOnce sync.Once
+	mu    sync.Mutex
+	ended bool
 }
 
 func newHandle(id SessionID, provider ProviderSession, runtime RuntimeSession) *handle {
+	ctx, cancel := context.WithCancel(context.Background())
 	h := &handle{
 		id:       id,
 		provider: provider,
 		runtime:  runtime,
+		ctx:      ctx,
+		cancel:   cancel,
 		cmdChan:  make(chan any, 64),
 		done:     make(chan struct{}),
 	}
@@ -69,10 +76,16 @@ func (h *handle) run() {
 		if h.runtime != nil {
 			_ = h.runtime.Close()
 		}
+		h.cancel()
 	}
 
 	for {
 		select {
+		case <-h.ctx.Done():
+			cleanup()
+			close(h.done)
+			return
+
 		case msg := <-h.cmdChan:
 			switch cmd := msg.(type) {
 			case attachCmd:
@@ -86,14 +99,14 @@ func (h *handle) run() {
 						case <-h.done:
 						}
 					},
-					func(ctx context.Context, in SessionInput) error {
+					func(ctx context.Context, l *clientLink, in SessionInput) error {
 						reply := make(chan error, 1)
 						select {
 						case <-ctx.Done():
 							return ctx.Err()
 						case <-h.done:
 							return ErrSessionEnded
-						case h.cmdChan <- inputCmd{ctx: ctx, input: in, reply: reply}:
+						case h.cmdChan <- inputCmd{ctx: ctx, link: l, input: in, reply: reply}:
 						}
 
 						select {
@@ -113,7 +126,10 @@ func (h *handle) run() {
 				}
 
 			case inputCmd:
-				// Route input if needed; in this lifecycle slice, input on active link is valid
+				if activeLink != cmd.link {
+					cmd.reply <- ErrLinkSuperseded
+					continue
+				}
 				cmd.reply <- nil
 
 			case endCmd:
@@ -157,34 +173,46 @@ func (h *handle) Attach(ctx context.Context) (ClientLink, error) {
 }
 
 func (h *handle) End(ctx context.Context) error {
-	var err error
-	h.endOnce.Do(func() {
-		select {
-		case <-h.done:
-			return
-		case <-ctx.Done():
-			err = ctx.Err()
-			return
-		default:
-		}
+	h.mu.Lock()
+	if h.ended {
+		h.mu.Unlock()
+		return nil
+	}
 
-		reply := make(chan error, 1)
-		cmd := endCmd{reply: reply}
+	select {
+	case <-h.done:
+		h.ended = true
+		h.mu.Unlock()
+		return nil
+	case <-ctx.Done():
+		h.mu.Unlock()
+		return ctx.Err()
+	default:
+	}
 
-		select {
-		case <-h.done:
-			return
-		case <-ctx.Done():
-			err = ctx.Err()
-			return
-		case h.cmdChan <- cmd:
-		}
+	reply := make(chan error, 1)
+	cmd := endCmd{reply: reply}
 
-		select {
-		case <-ctx.Done():
-			err = ctx.Err()
-		case err = <-reply:
+	select {
+	case <-h.done:
+		h.ended = true
+		h.mu.Unlock()
+		return nil
+	case <-ctx.Done():
+		h.mu.Unlock()
+		return ctx.Err()
+	case h.cmdChan <- cmd:
+	}
+
+	select {
+	case <-ctx.Done():
+		h.mu.Unlock()
+		return ctx.Err()
+	case err := <-reply:
+		if err == nil {
+			h.ended = true
 		}
-	})
-	return err
+		h.mu.Unlock()
+		return err
+	}
 }

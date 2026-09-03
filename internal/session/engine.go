@@ -42,9 +42,9 @@ func NewEngine(provider VoiceProvider, runtime AgentRuntime) SessionEngine {
 func (e *engine) Open(ctx context.Context, req OpenRequest) (SessionHandle, error) {
 	id := req.Resume
 	if id == "" {
-		id = generateSessionID()
+		id = SessionID(generateSessionID())
 	}
-	sessID := SessionID(id)
+	sessID := id
 
 	var (
 		pSession ProviderSession

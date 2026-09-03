@@ -2,6 +2,7 @@ package session_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
@@ -316,4 +317,164 @@ func TestConcurrentAttachDetachEnd(t *testing.T) {
 	}()
 
 	wg.Wait()
+}
+
+func TestEndContextCancellationAllowsSubsequentEnd(t *testing.T) {
+	ctx := context.Background()
+	provider := session.NewFakeVoiceProvider()
+	runtime := session.NewFakeAgentRuntime()
+	engine := session.NewEngine(provider, runtime)
+
+	handle, err := engine.Open(ctx, session.OpenRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error opening session: %v", err)
+	}
+
+	canceledCtx, cancel := context.WithCancel(ctx)
+	cancel() // cancel immediately
+
+	// Calling End with canceled context should return error
+	if err := handle.End(canceledCtx); err == nil {
+		t.Fatal("expected error with pre-canceled context")
+	}
+
+	// Subsequent End with valid context should succeed and cleanly terminate session
+	if err := handle.End(ctx); err != nil {
+		t.Fatalf("expected subsequent End to succeed, got %v", err)
+	}
+
+	if _, err := handle.Attach(ctx); err != session.ErrSessionEnded {
+		t.Fatalf("expected ErrSessionEnded after successful End, got %v", err)
+	}
+}
+
+func TestLinkStateTransitionsTable(t *testing.T) {
+	tests := []struct {
+		name          string
+		setup         func(handle session.SessionHandle) (session.ClientLink, error)
+		expectSendErr error
+	}{
+		{
+			name: "active link allows send",
+			setup: func(h session.SessionHandle) (session.ClientLink, error) {
+				return h.Attach(context.Background())
+			},
+			expectSendErr: nil,
+		},
+		{
+			name: "detached link returns ErrLinkDetached",
+			setup: func(h session.SessionHandle) (session.ClientLink, error) {
+				l, err := h.Attach(context.Background())
+				if err != nil {
+					return nil, err
+				}
+				if err := l.Detach(); err != nil {
+					return nil, err
+				}
+				return l, nil
+			},
+			expectSendErr: session.ErrLinkDetached,
+		},
+		{
+			name: "superseded link returns ErrLinkSuperseded",
+			setup: func(h session.SessionHandle) (session.ClientLink, error) {
+				l1, err := h.Attach(context.Background())
+				if err != nil {
+					return nil, err
+				}
+				_, err = h.Attach(context.Background())
+				if err != nil {
+					return nil, err
+				}
+				return l1, nil
+			},
+			expectSendErr: session.ErrLinkSuperseded,
+		},
+		{
+			name: "link terminated by End returns error",
+			setup: func(h session.SessionHandle) (session.ClientLink, error) {
+				l, err := h.Attach(context.Background())
+				if err != nil {
+					return nil, err
+				}
+				if err := h.End(context.Background()); err != nil {
+					return nil, err
+				}
+				return l, nil
+			},
+			expectSendErr: session.ErrLinkTerminal,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			provider := session.NewFakeVoiceProvider()
+			runtime := session.NewFakeAgentRuntime()
+			engine := session.NewEngine(provider, runtime)
+
+			h, err := engine.Open(ctx, session.OpenRequest{})
+			if err != nil {
+				t.Fatalf("unexpected open error: %v", err)
+			}
+			link, err := tc.setup(h)
+			if err != nil {
+				t.Fatalf("unexpected setup error: %v", err)
+			}
+
+			err = link.Send(ctx, session.ClientTextInput{Text: "test"})
+			if tc.expectSendErr == nil {
+				if err != nil {
+					t.Fatalf("expected nil send error, got %v", err)
+				}
+			} else if err != tc.expectSendErr {
+				t.Fatalf("expected error %v, got %v", tc.expectSendErr, err)
+			}
+		})
+	}
+}
+
+func TestOpenPropagatesProviderAndRuntimeErrors(t *testing.T) {
+	ctx := context.Background()
+	testErr := errors.New("boom")
+
+	t.Run("provider start failure", func(t *testing.T) {
+		provider := session.NewFakeVoiceProvider()
+		provider.SetStartError(testErr)
+		runtime := session.NewFakeAgentRuntime()
+		engine := session.NewEngine(provider, runtime)
+
+		handle, err := engine.Open(ctx, session.OpenRequest{})
+		if !errors.Is(err, testErr) {
+			t.Fatalf("expected error %v, got %v", testErr, err)
+		}
+		if handle != nil {
+			t.Fatal("expected nil handle on provider open error")
+		}
+		if len(runtime.Sessions()) != 0 {
+			t.Fatal("runtime session should not be started if provider fails")
+		}
+	})
+
+	t.Run("runtime start failure cleans up provider", func(t *testing.T) {
+		provider := session.NewFakeVoiceProvider()
+		runtime := session.NewFakeAgentRuntime()
+		runtime.SetStartError(testErr)
+		engine := session.NewEngine(provider, runtime)
+
+		handle, err := engine.Open(ctx, session.OpenRequest{})
+		if !errors.Is(err, testErr) {
+			t.Fatalf("expected error %v, got %v", testErr, err)
+		}
+		if handle != nil {
+			t.Fatal("expected nil handle on runtime open error")
+		}
+		pSessions := provider.Sessions()
+		if len(pSessions) != 1 {
+			t.Fatalf("expected 1 provider session attempted, got %d", len(pSessions))
+		}
+		if !pSessions[0].IsClosed() {
+			t.Fatal("provider session should be closed when runtime start fails")
+		}
+	})
 }

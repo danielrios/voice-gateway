@@ -3,10 +3,9 @@ package session
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 )
 
-type linkState int32
+type linkState int
 
 const (
 	linkActive linkState = iota
@@ -17,15 +16,16 @@ const (
 
 type clientLink struct {
 	events   chan SessionOutput
-	state    atomic.Int32
-	detachMu sync.Mutex
+	mu       sync.RWMutex
+	state    linkState
 	onDetach func(*clientLink)
-	onSend   func(context.Context, SessionInput) error
+	onSend   func(context.Context, *clientLink, SessionInput) error
 }
 
-func newClientLink(onDetach func(*clientLink), onSend func(context.Context, SessionInput) error) *clientLink {
+func newClientLink(onDetach func(*clientLink), onSend func(context.Context, *clientLink, SessionInput) error) *clientLink {
 	return &clientLink{
 		events:   make(chan SessionOutput, 64),
+		state:    linkActive,
 		onDetach: onDetach,
 		onSend:   onSend,
 	}
@@ -35,39 +35,39 @@ func (l *clientLink) Events() <-chan SessionOutput {
 	return l.events
 }
 
-func (l *clientLink) Detach() error {
-	l.detachMu.Lock()
-	defer l.detachMu.Unlock()
+func (l *clientLink) closeWithState(newState linkState) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 
-	if l.state.CompareAndSwap(int32(linkActive), int32(linkDetached)) {
+	if l.state == linkActive {
+		l.state = newState
 		close(l.events)
-		if l.onDetach != nil {
-			l.onDetach(l)
-		}
+		return true
+	}
+	return false
+}
+
+func (l *clientLink) Detach() error {
+	if l.closeWithState(linkDetached) && l.onDetach != nil {
+		l.onDetach(l)
 	}
 	return nil
 }
 
 func (l *clientLink) supersede() {
-	l.detachMu.Lock()
-	defer l.detachMu.Unlock()
-
-	if l.state.CompareAndSwap(int32(linkActive), int32(linkSuperseded)) {
-		close(l.events)
-	}
+	l.closeWithState(linkSuperseded)
 }
 
 func (l *clientLink) terminate() {
-	l.detachMu.Lock()
-	defer l.detachMu.Unlock()
-
-	if l.state.CompareAndSwap(int32(linkActive), int32(linkTerminated)) {
-		close(l.events)
-	}
+	l.closeWithState(linkTerminated)
 }
 
 func (l *clientLink) Send(ctx context.Context, input SessionInput) error {
-	switch linkState(l.state.Load()) {
+	l.mu.RLock()
+	st := l.state
+	l.mu.RUnlock()
+
+	switch st {
 	case linkDetached:
 		return ErrLinkDetached
 	case linkSuperseded:
@@ -76,7 +76,7 @@ func (l *clientLink) Send(ctx context.Context, input SessionInput) error {
 		return ErrLinkTerminal
 	case linkActive:
 		if l.onSend != nil {
-			return l.onSend(ctx, input)
+			return l.onSend(ctx, l, input)
 		}
 		return nil
 	default:

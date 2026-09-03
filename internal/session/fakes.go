@@ -8,6 +8,7 @@ import (
 // FakeVoiceProvider is a deterministic in-memory Voice Provider for tests.
 type FakeVoiceProvider struct {
 	mu       sync.Mutex
+	startErr error
 	sessions []*FakeProviderSession
 }
 
@@ -16,10 +17,21 @@ func NewFakeVoiceProvider() *FakeVoiceProvider {
 	return &FakeVoiceProvider{}
 }
 
+// SetStartError configures an error to return on StartSession.
+func (p *FakeVoiceProvider) SetStartError(err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.startErr = err
+}
+
 // StartSession satisfies VoiceProvider.
 func (p *FakeVoiceProvider) StartSession(_ context.Context, id SessionID) (ProviderSession, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	if p.startErr != nil {
+		return nil, p.startErr
+	}
 
 	s := &FakeProviderSession{id: id}
 	p.sessions = append(p.sessions, s)
@@ -60,6 +72,7 @@ func (s *FakeProviderSession) IsClosed() bool {
 // FakeAgentRuntime is a deterministic in-memory Agent Runtime for tests.
 type FakeAgentRuntime struct {
 	mu       sync.Mutex
+	startErr error
 	sessions []*FakeRuntimeSession
 }
 
@@ -68,10 +81,21 @@ func NewFakeAgentRuntime() *FakeAgentRuntime {
 	return &FakeAgentRuntime{}
 }
 
+// SetStartError configures an error to return on StartSession.
+func (r *FakeAgentRuntime) SetStartError(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.startErr = err
+}
+
 // StartSession satisfies AgentRuntime.
 func (r *FakeAgentRuntime) StartSession(_ context.Context, id SessionID) (RuntimeSession, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if r.startErr != nil {
+		return nil, r.startErr
+	}
 
 	s := &FakeRuntimeSession{id: id}
 	r.sessions = append(r.sessions, s)

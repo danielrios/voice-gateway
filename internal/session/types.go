@@ -15,7 +15,7 @@ type SessionID string
 
 // OpenRequest carries parameters for opening or resuming a Voice Session.
 type OpenRequest struct {
-	Resume string
+	Resume SessionID
 }
 
 // SessionInput represents domain input sent from a Voice Client to a Voice Session.
