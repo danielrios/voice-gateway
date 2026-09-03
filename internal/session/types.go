@@ -13,22 +13,13 @@ var (
 // SessionID is a gateway-owned identifier for a Voice Session.
 type SessionID string
 
-// OpenRequest carries parameters for opening or resuming a Voice Session.
-type OpenRequest struct {
-	Resume SessionID
-}
+// OpenRequest carries parameters for opening a Voice Session.
+type OpenRequest struct{}
 
 // SessionInput represents domain input sent from a Voice Client to a Voice Session.
 type SessionInput interface {
 	isSessionInput()
 }
-
-// ClientAudioInput delivers audio data from a Voice Client.
-type ClientAudioInput struct {
-	Data []byte
-}
-
-func (ClientAudioInput) isSessionInput() {}
 
 // ClientTextInput delivers conversational text from a Voice Client.
 type ClientTextInput struct {
@@ -41,24 +32,3 @@ func (ClientTextInput) isSessionInput() {}
 type SessionOutput interface {
 	isSessionOutput()
 }
-
-// AudioOutput delivers synthesized audio to a Voice Client.
-type AudioOutput struct {
-	Data []byte
-}
-
-func (AudioOutput) isSessionOutput() {}
-
-// TextOutput delivers conversational text to a Voice Client.
-type TextOutput struct {
-	Text string
-}
-
-func (TextOutput) isSessionOutput() {}
-
-// SessionEndedOutput signals that the Voice Session has terminated.
-type SessionEndedOutput struct {
-	Reason string
-}
-
-func (SessionEndedOutput) isSessionOutput() {}

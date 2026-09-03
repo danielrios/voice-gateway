@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"sync"
 )
 
 type attachResult struct {
@@ -38,9 +37,6 @@ type handle struct {
 	cancel  context.CancelFunc
 	cmdChan chan any
 	done    chan struct{}
-
-	mu    sync.Mutex
-	ended bool
 }
 
 func newHandle(id SessionID, provider ProviderSession, runtime RuntimeSession) *handle {
@@ -79,11 +75,30 @@ func (h *handle) run() {
 		h.cancel()
 	}
 
+	drainCommands := func() {
+		for {
+			select {
+			case msg := <-h.cmdChan:
+				switch cmd := msg.(type) {
+				case attachCmd:
+					cmd.reply <- attachResult{err: ErrSessionEnded}
+				case inputCmd:
+					cmd.reply <- ErrSessionEnded
+				case endCmd:
+					cmd.reply <- nil
+				}
+			default:
+				return
+			}
+		}
+	}
+
 	for {
 		select {
 		case <-h.ctx.Done():
 			cleanup()
 			close(h.done)
+			drainCommands()
 			return
 
 		case msg := <-h.cmdChan:
@@ -112,6 +127,8 @@ func (h *handle) run() {
 						select {
 						case <-ctx.Done():
 							return ctx.Err()
+						case <-h.done:
+							return ErrSessionEnded
 						case err := <-reply:
 							return err
 						}
@@ -135,6 +152,7 @@ func (h *handle) run() {
 			case endCmd:
 				cleanup()
 				close(h.done)
+				drainCommands()
 				cmd.reply <- nil
 				return
 			}
@@ -143,14 +161,6 @@ func (h *handle) run() {
 }
 
 func (h *handle) Attach(ctx context.Context) (ClientLink, error) {
-	select {
-	case <-h.done:
-		return nil, ErrSessionEnded
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-
 	reply := make(chan attachResult, 1)
 	cmd := attachCmd{reply: reply}
 
@@ -173,46 +183,23 @@ func (h *handle) Attach(ctx context.Context) (ClientLink, error) {
 }
 
 func (h *handle) End(ctx context.Context) error {
-	h.mu.Lock()
-	if h.ended {
-		h.mu.Unlock()
-		return nil
-	}
-
-	select {
-	case <-h.done:
-		h.ended = true
-		h.mu.Unlock()
-		return nil
-	case <-ctx.Done():
-		h.mu.Unlock()
-		return ctx.Err()
-	default:
-	}
-
 	reply := make(chan error, 1)
 	cmd := endCmd{reply: reply}
 
 	select {
 	case <-h.done:
-		h.ended = true
-		h.mu.Unlock()
 		return nil
 	case <-ctx.Done():
-		h.mu.Unlock()
 		return ctx.Err()
 	case h.cmdChan <- cmd:
 	}
 
 	select {
+	case <-h.done:
+		return nil
 	case <-ctx.Done():
-		h.mu.Unlock()
 		return ctx.Err()
 	case err := <-reply:
-		if err == nil {
-			h.ended = true
-		}
-		h.mu.Unlock()
 		return err
 	}
 }

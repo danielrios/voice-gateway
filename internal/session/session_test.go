@@ -5,9 +5,22 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/danielrios/voice-gateway/internal/session"
 )
+
+func assertEventsClosed(t *testing.T, ch <-chan session.SessionOutput) {
+	t.Helper()
+	select {
+	case ev, ok := <-ch:
+		if ok {
+			t.Fatalf("expected events channel to be closed, but received event: %v", ev)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for events channel to close")
+	}
+}
 
 func TestOpenSessionReturnsSessionIdentity(t *testing.T) {
 	ctx := context.Background()
@@ -27,6 +40,30 @@ func TestOpenSessionReturnsSessionIdentity(t *testing.T) {
 	if string(sessionID) == "" {
 		t.Fatal("expected non-empty SessionID")
 	}
+}
+
+func TestOpenSessionFailsOnEntropyExhaustion(t *testing.T) {
+	restore := session.SetRandReaderForTesting(errReader{})
+	defer restore()
+
+	ctx := context.Background()
+	provider := session.NewFakeVoiceProvider()
+	runtime := session.NewFakeAgentRuntime()
+	engine := session.NewEngine(provider, runtime)
+
+	handle, err := engine.Open(ctx, session.OpenRequest{})
+	if err == nil {
+		t.Fatal("expected error on entropy failure, got nil")
+	}
+	if handle != nil {
+		t.Fatal("expected nil handle on entropy failure")
+	}
+}
+
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) {
+	return 0, errors.New("entropy exhausted")
 }
 
 func TestAttachAndDetachClientLinkWithoutEndingSession(t *testing.T) {
@@ -52,10 +89,8 @@ func TestAttachAndDetachClientLinkWithoutEndingSession(t *testing.T) {
 		t.Fatalf("unexpected error detaching client link: %v", err)
 	}
 
-	// Verify events channel is closed upon detach
-	for range link.Events() {
-		// drain any remaining events
-	}
+	// Verify events channel is closed upon detach using timed assertion
+	assertEventsClosed(t, link.Events())
 
 	// Sending on a detached link should fail with ErrLinkDetached
 	if err := link.Send(ctx, session.ClientTextInput{Text: "hello"}); err != session.ErrLinkDetached {
@@ -126,21 +161,8 @@ func TestNewClientLinkSupersedesOldLink(t *testing.T) {
 		t.Fatalf("unexpected error attaching second link: %v", err)
 	}
 
-	// Verify link1 is now terminal / superseded:
-	// Events channel should be closed.
-	select {
-	case _, ok := <-link1.Events():
-		if ok {
-			t.Fatal("expected link1 events channel to be closed, but received event")
-		}
-	default:
-		// channel might take a moment if not closed immediately; but our implementation closes synchronously on attach
-		// Let's check with channel read
-		_, ok := <-link1.Events()
-		if ok {
-			t.Fatal("expected link1 events channel to be closed")
-		}
-	}
+	// Verify link1 events channel is closed upon supersession
+	assertEventsClosed(t, link1.Events())
 
 	// link1 Send should return ErrLinkSuperseded
 	if err := link1.Send(ctx, session.ClientTextInput{Text: "stale"}); err != session.ErrLinkSuperseded {
@@ -215,17 +237,7 @@ func TestExplicitEndLifecycle(t *testing.T) {
 	}
 
 	// Events channel should be closed
-	select {
-	case _, ok := <-link.Events():
-		if ok {
-			t.Fatal("expected active link events channel to be closed after End, but received event")
-		}
-	default:
-		_, ok := <-link.Events()
-		if ok {
-			t.Fatal("expected active link events channel to be closed after End")
-		}
-	}
+	assertEventsClosed(t, link.Events())
 
 	// Send on invalidated link should fail
 	if err := link.Send(ctx, session.ClientTextInput{Text: "after end"}); err == nil {
@@ -242,6 +254,78 @@ func TestExplicitEndLifecycle(t *testing.T) {
 	// Subsequent attach must be rejected with ErrSessionEnded
 	if _, err := handle.Attach(ctx); err != session.ErrSessionEnded {
 		t.Fatalf("expected ErrSessionEnded on attach after End, got %v", err)
+	}
+}
+
+func TestSendDoesNotDeadlockWhenRacingWithEnd(t *testing.T) {
+	ctx := context.Background()
+	provider := session.NewFakeVoiceProvider()
+	runtime := session.NewFakeAgentRuntime()
+	engine := session.NewEngine(provider, runtime)
+
+	handle, err := engine.Open(ctx, session.OpenRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error opening session: %v", err)
+	}
+
+	link, err := handle.Attach(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error attaching: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		// Concurrent Send with non-canceled context
+		_ = link.Send(context.Background(), session.ClientTextInput{Text: "racing send"})
+		close(done)
+	}()
+
+	_ = handle.End(context.Background())
+
+	select {
+	case <-done:
+		// success: Send completed without deadlocking
+	case <-time.After(1 * time.Second):
+		t.Fatal("Send deadlocked when racing with End")
+	}
+}
+
+func TestDrainingBufferedCommandsOnSessionEnd(t *testing.T) {
+	ctx := context.Background()
+	provider := session.NewFakeVoiceProvider()
+	runtime := session.NewFakeAgentRuntime()
+	engine := session.NewEngine(provider, runtime)
+
+	handle, err := engine.Open(ctx, session.OpenRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error opening session: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			link, err := handle.Attach(context.Background())
+			if err == nil && link != nil {
+				_ = link.Send(context.Background(), session.ClientTextInput{Text: "msg"})
+			}
+		}()
+	}
+
+	_ = handle.End(context.Background())
+
+	c := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(c)
+	}()
+
+	select {
+	case <-c:
+		// all callers unblocked cleanly
+	case <-time.After(2 * time.Second):
+		t.Fatal("callers blocked indefinitely waiting on buffered commands during End")
 	}
 }
 
@@ -302,7 +386,6 @@ func TestConcurrentAttachDetachEnd(t *testing.T) {
 			defer wg.Done()
 			link, err := handle.Attach(ctx)
 			if err != nil {
-				// ErrSessionEnded is valid if End raced ahead
 				return
 			}
 			_ = link.Send(ctx, session.ClientTextInput{Text: "concurrent message"})

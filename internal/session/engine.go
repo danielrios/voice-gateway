@@ -5,7 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 )
+
+var randReader io.Reader = rand.Reader
 
 // SessionEngine manages the lifecycle of Voice Sessions.
 type SessionEngine interface {
@@ -39,17 +42,15 @@ func NewEngine(provider VoiceProvider, runtime AgentRuntime) SessionEngine {
 	}
 }
 
-func (e *engine) Open(ctx context.Context, req OpenRequest) (SessionHandle, error) {
-	id := req.Resume
-	if id == "" {
-		id = SessionID(generateSessionID())
+func (e *engine) Open(ctx context.Context, _ OpenRequest) (SessionHandle, error) {
+	sessID, err := generateSessionID()
+	if err != nil {
+		return nil, err
 	}
-	sessID := id
 
 	var (
 		pSession ProviderSession
 		rSession RuntimeSession
-		err      error
 	)
 	if e.provider != nil {
 		pSession, err = e.provider.StartSession(ctx, sessID)
@@ -70,8 +71,10 @@ func (e *engine) Open(ctx context.Context, req OpenRequest) (SessionHandle, erro
 	return newHandle(sessID, pSession, rSession), nil
 }
 
-func generateSessionID() string {
+func generateSessionID() (SessionID, error) {
 	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return fmt.Sprintf("sess_%s", hex.EncodeToString(b))
+	if _, err := io.ReadFull(randReader, b); err != nil {
+		return "", fmt.Errorf("failed to generate random session ID: %w", err)
+	}
+	return SessionID(fmt.Sprintf("sess_%s", hex.EncodeToString(b))), nil
 }
