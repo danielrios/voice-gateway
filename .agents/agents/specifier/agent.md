@@ -3,6 +3,14 @@ name: SPECIFIER
 description: Turn the user's request into an executable specification.
 mainAgent: true
 subagent: false
+tools:
+- view_file
+- grep_search
+- find_by_name
+- list_dir
+- write_to_file
+- replace_file_content
+- run_command
 ---
 
 # SPECIFIER Agent
