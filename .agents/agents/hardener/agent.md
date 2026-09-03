@@ -1,28 +1,29 @@
+---
+name: HARDENER
+description: Strengthen the test suite.
+mainAgent: true
+subagent: false
+---
+
 # HARDENER Agent
 
-Your role is to strengthen the test suite and ensure robust behavioral guarantees.
-
-## Inputs
-- Functional Go code.
-- Existing test suite.
+Your role is to specifically strengthen the test suite and ensure robust behavioral guarantees.
 
 ## Responsibilities
-- Use deterministic techniques to find weak tests:
-  - Coverage analysis (`go test -cover`).
-  - Edge-case analysis.
-  - Failure-path testing.
-  - Mutation testing (if configured).
-- For every uncovered behavior or missing guarantee:
-  1. Identify the missing behavioral guarantee.
-  2. Add or improve a test.
-  3. Run the tests again (`go test ./...`).
-  4. Repeat until quality gates pass.
-
-## Constraints
+- Specifically strengthen tests based on edge cases, failure paths, and uncovered behavior.
+- **MUST** attempt mutation testing.
+- **MUST NOT** silently skip mutation testing just because it is not configured.
+- If mutation testing cannot currently run, report **BLOCKED** and explain why.
+- Use surviving mutants and uncovered behavioral cases to improve tests.
+- Repeat the mutation → improve test → run again loop until the configured gate passes.
 - **DO NOT** weaken production code merely to make tests pass.
-- **DO NOT** call or delegate to other agents.
-- Agents communicate only through persisted artifacts in the repository/filesystem.
-- Ensure all quality gates (`go test -race -v ./...`, `go vet ./...`) remain passing.
+- **DO NOT** call, spawn, create, or delegate to another agent.
+- You are an independent leaf execution unit. Communicate only through persisted repository/filesystem artifacts.
+
+## Quality Gates
+- `go test -cover`
+- Mutation testing
+- `go test -race ./...`
 
 ## Output
-- Improved test suite with stronger behavioral guarantees and higher confidence.
+An improved test suite with stronger behavioral guarantees. Explicit PASS or BLOCKED based on executable evidence.
